@@ -4,9 +4,10 @@ A desktop GUI tool that scans every PDF (`.pdf`) and Word document (`.docx`) in 
 
 ## Features
 
-- **Directory picker** — browse to any folder
-- **Multiple keywords** — comma-separated (e.g. `invoice, overdue, PO-2024`)
-- **Exact / whole-word matching** — wrap a keyword in double quotes (e.g. `"PO"`) to match it as a whole word only, instead of as a substring. Useful for short keywords that would otherwise false-match inside longer words (e.g. `"PO"` won't match inside "REPORT" or "PORT", but unquoted `po` would).
+- **Directory picker** — browse to any folder; defaults to the script's own folder on launch
+- **Multiple keywords** — comma-separated; unquoted keywords are full Python regex patterns (e.g. `PO-\d+`, `overdue|outstanding`, `inv(oice|oicing)`)
+- **Exact / whole-word matching** — wrap a keyword in double quotes (e.g. `"PO"`) to match it as a literal whole word; regex metacharacters are escaped automatically, so `"U.S.A."` matches dots literally
+- **Pre-scan regex validation** — invalid patterns are caught and reported before scanning begins
 - **Mixed file types** — scans `.pdf` and `.docx` files together in one pass
 - **Word table support** — searches inside Word table cells as well as body text
 - **Per-keyword results** — one Yes/No column per keyword, plus an "Any Match" summary column
@@ -27,19 +28,27 @@ No manual `pip install` is required — the script checks for `pypdf` and `pytho
 ## Usage
 
 ```bash
-python3 pdf_keyword_scanner.py
+python pdf_keyword_scanner.pyw
 ```
 
-1. Click **Browse...** and select the folder containing your PDFs / Word docs.
-2. Type one or more keywords into the **Keyword(s)** field, separated by commas.
-   - Unquoted keyword → substring match, e.g. `invoice` matches "invoice", "Invoicing", "reinvoice".
-   - `"quoted keyword"` → exact whole-word match, e.g. `"PO"` matches the standalone word "PO" but not "REPORT" or "PORT".
-   - Example: `invoice, "PO", overdue` searches for "invoice" anywhere, the exact word "PO", and "overdue" anywhere.
-   - Quoted keywords may contain commas (e.g. `"item, version 2"`) and spaces.
-3. (Optional) Tick **Case sensitive** or **Include subfolders**.
-4. Click **Scan** (or press Enter in the keyword field).
-5. Review results in the table — one row per file, one column per keyword. Exact-match columns show their header in quotes.
-6. (Optional) Click **Export CSV** to save the results.
+1. On launch, the directory field defaults to the folder where the script resides.
+2. Click **Browse...** to change directory if needed.
+3. Type one or more keywords into the **Keyword(s)** field, separated by commas.
+   - **Unquoted** → full Python regex pattern (case-insensitive by default)
+     - `invoice` — simple substring (same as before)
+     - `inv(oice|oicing)` — alternation
+     - `PO-\d+` — matches "PO-2024", "PO-555", etc.
+     - `overdue|outstanding` — either word anywhere in the text
+   - **`"quoted"`** → exact whole-word literal match (regex metacharacters are escaped automatically)
+     - `"PO"` matches the standalone word "PO" but not inside "REPORT" or "PORT"
+     - `"U.S.A."` matches the literal string "U.S.A." (dots are not treated as regex)
+   - Mix both freely: `inv(oice|oicing), "PO", overdue|outstanding`
+   - Quoted keywords may contain commas (e.g. `"item, version 2"`)
+4. (Optional) Tick **Case sensitive** — applies to both regex and quoted keywords.
+5. (Optional) Tick **Include subfolders**.
+6. Click **Scan** (or press Enter). Invalid regex patterns are flagged immediately before the scan starts.
+7. Review results in the table. Exact-match columns show their header in quotes.
+8. (Optional) Click **Export CSV** to save results.
 
 ## Output columns
 
