@@ -53,7 +53,9 @@ class PDFKeywordScanner(tk.Tk):
         self.geometry("900x550")
         self.minsize(700, 400)
 
-        self.directory = tk.StringVar()
+        self.directory = tk.StringVar(
+            value=os.path.dirname(os.path.abspath(__file__))
+        )
         self.keywords_raw = tk.StringVar()
         self.case_sensitive = tk.BooleanVar(value=False)
         self.recursive = tk.BooleanVar(value=False)
@@ -83,7 +85,7 @@ class PDFKeywordScanner(tk.Tk):
         kw_entry = ttk.Entry(top, textvariable=self.keywords_raw)
         kw_entry.grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
         kw_entry.bind("<Return>", lambda e: self.start_scan())
-        ttk.Label(top, text='(comma-separated; use "exact" for whole-word match)').grid(
+        ttk.Label(top, text='(comma-separated; regex OK; use "exact" for whole-word)').grid(
             row=1, column=2, sticky="w", pady=(6, 0)
         )
 
@@ -209,6 +211,26 @@ class PDFKeywordScanner(tk.Tk):
         keywords = deduped
 
         self.scan_btn.config(state="disabled")
+
+        # Validate regex patterns before launching the thread; warn immediately
+        # for any invalid patterns so the user can fix them before the scan runs.
+        bad = []
+        for kw_text, is_exact in keywords:
+            if not is_exact:
+                try:
+                    re.compile(kw_text)
+                except re.error as exc:
+                    bad.append(f"  {kw_text!r} → {exc}")
+        if bad:
+            self.scan_btn.config(state="normal")
+            messagebox.showerror(
+                "Invalid regex pattern(s)",
+                "The following keyword(s) are not valid regex:\n\n"
+                + "\n".join(bad)
+                + "\n\nFix them or wrap in double quotes for a literal whole-word match.",
+            )
+            return
+
         self.status_text.set("Scanning...")
         self._clear_table()
 
@@ -250,19 +272,23 @@ class PDFKeywordScanner(tk.Tk):
             return
 
         case_sensitive = self.case_sensitive.get()
-
-        # Pre-compile a whole-word regex for each "exact" keyword.
-        # Unquoted keywords are matched as plain substrings (faster, and
-        # behaves the same as before this feature was added).
         flags = 0 if case_sensitive else re.IGNORECASE
+
+        # Compile all keywords up front so bad regex patterns are caught
+        # before we start scanning any files.
+        # compiled entry: (kw_text, pattern_or_None, error_or_None)
+        #   - Unquoted  : pattern is re.compile(text)  — full regex
+        #   - "Quoted"  : pattern is re.compile(\btext\b) — exact whole-word
         compiled = []
         for text, is_exact in keywords:
-            if is_exact:
-                pattern = re.compile(r"\b" + re.escape(text) + r"\b", flags)
-                compiled.append((text, is_exact, pattern))
-            else:
-                needle = text if case_sensitive else text.lower()
-                compiled.append((text, is_exact, needle))
+            try:
+                if is_exact:
+                    pattern = re.compile(r"\b" + re.escape(text) + r"\b", flags)
+                else:
+                    pattern = re.compile(text, flags)
+                compiled.append((text, pattern, None))
+            except re.error as exc:
+                compiled.append((text, None, f"Regex error: {exc}"))
 
         for i, path in enumerate(doc_paths, start=1):
             display_name = os.path.relpath(path, directory)
@@ -276,14 +302,14 @@ class PDFKeywordScanner(tk.Tk):
 
             row = {"filename": display_name, "type": file_type, "error": ""}
             try:
-                text = self._extract_text(path, ext)
-                text_for_substring = text if case_sensitive else text.lower()
-                for kw_text, is_exact, matcher in compiled:
-                    if is_exact:
-                        found = bool(matcher.search(text))
+                doc_text = self._extract_text(path, ext)
+                for kw_text, pattern, kw_error in compiled:
+                    if kw_error:
+                        row[kw_text] = "!"       # bad regex — flag it
+                        if not row["error"]:
+                            row["error"] = kw_error
                     else:
-                        found = matcher in text_for_substring
-                    row[kw_text] = "Yes" if found else "No"
+                        row[kw_text] = "Yes" if pattern.search(doc_text) else "No"
             except Exception as e:
                 for kw_text, _, _ in compiled:
                     row[kw_text] = "Error"
